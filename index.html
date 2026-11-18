@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#d40000">
+<title>AIA Carnival 2026 – Entrance QR Scanner</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+:root{--red:#d40000;--ink:#27313b;--muted:#68737d;--line:#d9dfe5}*{box-sizing:border-box}body{margin:0;background:#f3f5f7;color:var(--ink);font-family:Arial,sans-serif}.wrap{max-width:540px;margin:28px auto;padding:0 14px}.card{background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 8px 26px #00000012}.hero{background:var(--red);color:#fff;padding:22px 24px}.hero small{font-size:11px;font-weight:bold;letter-spacing:1.5px}.hero h1{font-size:25px;margin:8px 0 4px}.hero p{font-size:13px;margin:0}.content{padding:22px 24px}.content h2{font-size:20px;margin:0 0 8px}.muted{color:var(--muted);font-size:13px;line-height:1.5}label{display:block;font-size:13px;font-weight:bold;margin:16px 0 7px}input{width:100%;padding:13px;border:1px solid var(--line);border-radius:9px;font-size:15px}button{border:0;border-radius:9px;padding:12px 16px;font-weight:bold;cursor:pointer;margin:10px 6px 0 0;background:var(--red);color:#fff}button.secondary{background:#394653}button:disabled{opacity:.5;cursor:not-allowed}#reader{width:100%;margin-top:16px;border-radius:12px;overflow:hidden}#reader video{object-fit:cover}.result{margin-top:14px;padding:13px;border-radius:10px;font-size:14px;line-height:1.5;display:none;white-space:pre-wrap}.info{background:#eef5ff;color:#174a83}.ok{background:#eaf8ef;color:#176b37}.bad{background:#fff0f0;color:#a40000}.footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}.hint{font-size:12px;color:var(--muted);margin-top:10px}@media(max-width:480px){.wrap{margin:10px auto}.hero{padding:18px}.content{padding:18px}}
+</style>
+</head>
+<body>
+<div class="wrap"><section class="card">
+<header class="hero"><small>AIA DEPARTMENT PRESENTS</small><h1>AIA Carnival 2026</h1><p>Smart Digital Attendance System</p></header>
+<main class="content">
+<h2>Entrance QR Scanner</h2>
+<p class="muted">Authorised event staff only. Enter the Apps Script Web App URL and scanner key, then start the tablet camera.</p>
+<label for="apiUrl">Apps Script Web App URL (ending in /exec)</label>
+<input id="apiUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
+<label for="scannerKey">Scanner Authorisation Key</label>
+<input id="scannerKey" type="password" placeholder="Enter scanner key" autocomplete="off">
+<div><button id="startBtn" onclick="startCamera()">START CAMERA</button><button class="secondary" id="stopBtn" onclick="stopCamera()" disabled>STOP CAMERA</button></div>
+<div id="message" class="result info" role="status" aria-live="polite">Ready. Enter the details and start the camera.</div>
+<div id="reader"></div>
+<p class="hint">Keep this page open on the entrance tablet. Do not share the scanner key. Use the rear camera where available.</p>
+</main><footer class="footer">AIA Carnival • Digital Attendance</footer>
+</section></div>
+<script>
+let qrScanner=null, busy=false, callbackCounter=0, lastText='', lastAt=0;
+const $=id=>document.getElementById(id);
+function show(text,type='info'){const el=$('message');el.textContent=text;el.className='result '+type;el.style.display='block';}
+function apiBase(){let u=$('apiUrl').value.trim();if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u))throw new Error('Please enter the deployed Apps Script Web App URL ending in /exec.');return u;}
+function jsonpCheckIn(token){return new Promise((resolve,reject)=>{
+ const cb='aiaCarnivalCb_'+Date.now()+'_'+(++callbackCounter);const script=document.createElement('script');let finished=false;
+ const cleanup=()=>{if(finished)return;finished=true;clearTimeout(timer);delete window[cb];script.remove();};
+ const timer=setTimeout(()=>{cleanup();reject(new Error('No response from attendance server. Check the Apps Script deployment and internet connection.'));},20000);
+ window[cb]=data=>{cleanup();resolve(data);};
+ const params=new URLSearchParams({action:'checkin',token:token,scannerKey:$('scannerKey').value.trim(),callback:cb});
+ script.onerror=()=>{cleanup();reject(new Error('Could not load the attendance server response. Check the Web App URL and deployment access.'));};
+ script.src=apiBase()+'?'+params.toString();document.body.appendChild(script);
+ });}
+async function onQrDecoded(decodedText){if(busy)return;const now=Date.now();if(decodedText===lastText&&now-lastAt<4000)return;lastText=decodedText;lastAt=now;busy=true;
+ try{show('QR detected. Checking attendance…','info');const result=await jsonpCheckIn(decodedText.trim());
+ if(result&&result.ok){show((result.message||'Attendance successfully recorded.')+(result.name?'\nParticipant: '+result.name:'')+(result.wp?'\nWP: '+result.wp:'')+(result.time?'\nTime: '+result.time:''),'ok');}
+ else{const code=result&&result.code;show((result&&result.message)||'Attendance could not be recorded.'+(code?' ('+code+')':''),code==='DUPLICATE'?'bad':'bad');}
+ }catch(err){show(err.message||String(err),'bad');}
+ finally{setTimeout(()=>{busy=false;},1800);}
+}
+async function startCamera(){try{apiBase();if(!$('scannerKey').value.trim())throw new Error('Please enter the scanner authorisation key.');$('startBtn').disabled=true;show('Starting camera…','info');qrScanner=new Html5Qrcode('reader');await qrScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:250},aspectRatio:1.0},onQrDecoded,()=>{});$('stopBtn').disabled=false;show('Camera active. Scan a participant QR code.','info');}catch(err){$('startBtn').disabled=false;$('stopBtn').disabled=true;if(qrScanner){try{await qrScanner.clear();}catch(e){}qrScanner=null;}show('Camera could not start: '+(err.message||String(err)),'bad');}}
+async function stopCamera(){if(qrScanner){try{await qrScanner.stop();await qrScanner.clear();}catch(e){}qrScanner=null;}$('startBtn').disabled=false;$('stopBtn').disabled=true;show('Camera stopped.','info');}
+</script>
+</body></html>
